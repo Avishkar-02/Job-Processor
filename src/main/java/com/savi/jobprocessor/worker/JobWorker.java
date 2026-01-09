@@ -3,9 +3,13 @@ package com.savi.jobprocessor.worker;
 import com.savi.jobprocessor.model.Job;
 import com.savi.jobprocessor.model.JobStatus;
 import com.savi.jobprocessor.storage.JobStore;
+import org.springframework.context.annotation.Scope;
+import org.springframework.stereotype.Component;
 
 import java.util.concurrent.BlockingQueue;
 
+@Component
+@Scope("prototype")
 public class JobWorker implements Runnable {
 
     private final JobStore jobStore;
@@ -20,8 +24,10 @@ public class JobWorker implements Runnable {
     public void run() {
         while(true){
 
+            Job job=null;
+
             try {
-                Job job=jobQueue.take();
+                 job=jobQueue.take();
 
                 job.setJobStatus(JobStatus.RUNNING);
 
@@ -35,8 +41,14 @@ public class JobWorker implements Runnable {
                 job.setResult("Job Successfully Completed");
                 jobStore.save(job);
 
-            } catch (InterruptedException e) {
-               e.printStackTrace();
+            } catch (Exception e) {
+
+                if(job!=null){
+                    job.setJobStatus(JobStatus.FAILED);
+                    job.setErrorMessage(e.getMessage());
+                    jobStore.save(job);
+                }
+
             }
         }
     }
