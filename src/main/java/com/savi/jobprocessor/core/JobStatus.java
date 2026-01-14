@@ -1,4 +1,4 @@
-package com.savi.jobprocessor.model;
+package com.savi.jobprocessor.core;
 
 public enum JobStatus {
     PENDING,

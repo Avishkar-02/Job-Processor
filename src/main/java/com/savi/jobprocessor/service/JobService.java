@@ -1,7 +1,8 @@
 package com.savi.jobprocessor.service;
 
-import com.savi.jobprocessor.model.Job;
-import com.savi.jobprocessor.storage.JobStore;
+import com.savi.jobprocessor.entity.JobEntity;
+import com.savi.jobprocessor.core.JobStatus;
+import com.savi.jobprocessor.repository.JobRepository;
 import com.savi.jobprocessor.worker.JobWorker;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
@@ -12,47 +13,47 @@ import java.util.concurrent.atomic.AtomicLong;
 @Service
 public class JobService {
 
-
-    private final BlockingQueue<Job> jobQueue=new LinkedBlockingQueue<>();
-
-    private final AtomicLong idGenerator=new AtomicLong(1);
-
-    private final JobStore jobStore;
+    private final BlockingQueue<Long> jobQueue=new LinkedBlockingQueue<>();
 
     private final ApplicationContext context;
 
     private final Executor taskExecutor;
 
-    public JobService(JobStore jobStore, ApplicationContext context, Executor taskExecutor) {
-        this.jobStore = jobStore;
+    private final JobRepository jobRepository;
+
+
+    public JobService(JobRepository jobRepository, ApplicationContext context, Executor taskExecutor) {
+        this.jobRepository = jobRepository;
         this.context=context;
         this.taskExecutor=taskExecutor;
         startWorkers();
     }
 
-    public Job createJob(){
+    public JobEntity createJob(){
 
-        Long id=idGenerator.getAndIncrement();
-        Job job=new Job(id);
+        JobEntity jobEntity =new JobEntity();
+        jobEntity.setStatus(JobStatus.PENDING);
+        jobEntity.setProgress(0);
 
-        jobStore.save(job);
-        jobQueue.add(job);
+        JobEntity savedJob=jobRepository.save(jobEntity);
+        jobQueue.add(savedJob.getId());
 
-        return job;
+        return savedJob;
     }
 
-    public Job getJob(Long id){
-        return jobStore.findById(id);
+    public JobEntity getJob(Long id){
+        return jobRepository.findById(id)
+                .orElse(null);
     }
 
-    public BlockingQueue<Job> getJobQueue(){
+    public BlockingQueue<Long> getJobQueue(){
         return jobQueue;
     }
 
     public void startWorkers(){
          for(int i=0;i<3;i++){
 
-             JobWorker worker=context.getBean(JobWorker.class,jobQueue,jobStore);
+             JobWorker worker=context.getBean(JobWorker.class,jobQueue,jobRepository);
              taskExecutor.execute(worker);
          }
     }

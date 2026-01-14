@@ -1,8 +1,9 @@
 package com.savi.jobprocessor.controller;
 
 
-import com.savi.jobprocessor.dto.JobResponse;
-import com.savi.jobprocessor.model.Job;
+import com.savi.jobprocessor.dto.GetJobResponse;
+import com.savi.jobprocessor.dto.PostJobResponse;
+import com.savi.jobprocessor.entity.JobEntity;
 import com.savi.jobprocessor.service.JobService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -18,17 +19,17 @@ public class JobController {
     }
 
     @PostMapping
-    public ResponseEntity<JobResponse> createJob(){
-        Job job=jobService.createJob();
+    public ResponseEntity<?> createJob(){
+        JobEntity job=jobService.createJob();
 
         return ResponseEntity
-                .ok(new JobResponse(job));
+                .ok(new PostJobResponse(job));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<?> getJob(@PathVariable Long id){
 
-        Job job= jobService.getJob(id);
+        JobEntity job= jobService.getJob(id);
 
         if(job==null){
             return ResponseEntity
@@ -41,6 +42,6 @@ public class JobController {
                     );
         }
 
-        return ResponseEntity.ok(new JobResponse(job));
+        return ResponseEntity.ok(new GetJobResponse(job));
     }
 }

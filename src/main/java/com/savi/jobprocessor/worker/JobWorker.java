@@ -1,8 +1,8 @@
 package com.savi.jobprocessor.worker;
 
-import com.savi.jobprocessor.model.Job;
-import com.savi.jobprocessor.model.JobStatus;
-import com.savi.jobprocessor.storage.JobStore;
+import com.savi.jobprocessor.entity.JobEntity;
+import com.savi.jobprocessor.core.JobStatus;
+import com.savi.jobprocessor.repository.JobRepository;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
@@ -12,43 +12,51 @@ import java.util.concurrent.BlockingQueue;
 @Scope("prototype")
 public class JobWorker implements Runnable {
 
-    private final JobStore jobStore;
-    private final BlockingQueue<Job> jobQueue;
+    private final BlockingQueue<Long> jobQueue;
+    private final JobRepository jobRepository;
 
-    public JobWorker(BlockingQueue<Job> jobQueue,JobStore jobStore){
-        this.jobStore=jobStore;
+    public JobWorker(BlockingQueue<Long> jobQueue,JobRepository jobRepository){
         this.jobQueue=jobQueue;
+        this.jobRepository=jobRepository;
     }
 
     @Override
     public void run() {
         while(true){
 
-            Job job=null;
+            Long jobId=null;
 
             try {
-                 job=jobQueue.take();
+                 jobId=jobQueue.take();
 
-                job.setJobStatus(JobStatus.RUNNING);
+                 JobEntity job=jobRepository.findById(jobId)
+                        .orElseThrow(()-> new IllegalStateException("Job Not Found"));
+
+                 job.setStatus(JobStatus.RUNNING);
 
                 for(int i=0;i<=5;i++){
                     Thread.sleep(5000);
                     job.setProgress(i*20);
-                    jobStore.save(job);
+                    jobRepository.save(job);
                 }
 
-                job.setJobStatus(JobStatus.COMPLETED);
-                job.setResult("Job Successfully Completed");
-                jobStore.save(job);
+                jobRepository.findById(job.getId()).ifPresent(entity ->{
+                    entity.setStatus(JobStatus.COMPLETED);
+                    entity.setResult("Job Completed Successfully");
+                    entity.setProgress(100);
+                    jobRepository.save(entity);
+                });
 
             } catch (Exception e) {
 
-                if(job!=null){
-                    job.setJobStatus(JobStatus.FAILED);
-                    job.setErrorMessage(e.getMessage());
-                    jobStore.save(job);
+                if(jobId!=null) {
+                    jobRepository.findById(jobId).ifPresent(entity -> {
+                        entity.setResult("Job Failed");
+                        entity.setStatus(JobStatus.FAILED);
+                        entity.setErrorMessage(e.getMessage());
+                        jobRepository.save(entity);
+                    });
                 }
-
             }
         }
     }
