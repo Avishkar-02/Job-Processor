@@ -4,7 +4,9 @@ package com.savi.jobprocessor.controller;
 import com.savi.jobprocessor.dto.CancelJobResponse;
 import com.savi.jobprocessor.dto.PostJobResponse;
 import com.savi.jobprocessor.entity.JobEntity;
+import com.savi.jobprocessor.ratelimit.RateLimiterService;
 import com.savi.jobprocessor.service.JobService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -15,20 +17,36 @@ import org.springframework.web.bind.annotation.*;
 public class JobController {
 
     private final JobService jobService;
+    private final RateLimiterService rateLimiterService;
     private static final Logger log= LoggerFactory.getLogger(JobController.class);
 
-    public JobController(JobService jobService){
+    public JobController(JobService jobService, RateLimiterService rateLimiterService){
         this.jobService=jobService;
+        this.rateLimiterService=rateLimiterService;
     }
 
     @PostMapping
-    public ResponseEntity<?> createJob(){
-        log.info("Received Request to create job");
-        JobEntity job=jobService.createJob();
+    public ResponseEntity<?> createJob(HttpServletRequest request){
+        try {
 
-        log.info("Job Created Successfully with id={}",job.getId());
-        return ResponseEntity
-                .ok(new PostJobResponse(job));
+            String clientIp=request.getRemoteAddr();
+            rateLimiterService.validateCreateJobRequest(clientIp);
+
+            log.info("Received Request to create job");
+            JobEntity job = jobService.createJob();
+
+            log.info("Job Created Successfully with id={}", job.getId());
+            return ResponseEntity
+                    .ok(new PostJobResponse(job));
+        }catch (Exception e){
+
+            log.info("Request limit exceeded for the ip: {}",request);
+            return ResponseEntity.status(429).body(
+                    new Object(){
+                        public final String message=e.getMessage();
+                    }
+            );
+        }
     }
 
     @GetMapping("/{id}")
