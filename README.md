@@ -1,17 +1,34 @@
-# Asynchronous Job Processing System (Spring Boot)
+# Asynchronous Job Processing System
+
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-6DB33F?style=for-the-badge&logo=spring-boot&logoColor=white)
+![Java](https://img.shields.io/badge/Java%2021-ED8B00?style=for-the-badge&logo=openjdk&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-DC382D?style=for-the-badge&logo=redis&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-4479A1?style=for-the-badge&logo=mysql&logoColor=white)
+
+A production-ready asynchronous job processing system demonstrating enterprise-grade backend architecture patterns including multithreading, caching, and rate limiting.
 
 ## 📌 Overview
 
-This project is a **production-style asynchronous job processing system** built using **Spring Boot**, **Java concurrency**, and **MySQL**. It demonstrates how real backend systems handle **long-running tasks** without blocking HTTP request threads.
+This project showcases a scalable asynchronous job processing system built with **Spring Boot**, **Java concurrency**, **MySQL**, **Redis**, and **rate limiting**. It demonstrates how modern backend systems handle:
 
-Instead of executing heavy work inside web requests, the system:
+- ✅ Long-running jobs without blocking HTTP threads
+- ✅ High-frequency job status polling
+- ✅ Graceful job cancellation
+- ✅ Performance optimization using caching
+- ✅ API protection against abuse
 
-* Accepts a job request
-* Immediately returns a **Job ID**
-* Processes the job asynchronously using worker threads
-* Allows clients to poll job status later
+### Architecture Philosophy
 
-This architecture is widely used in **banking, e‑commerce, reporting, analytics, and enterprise systems**.
+Instead of executing heavy work inside HTTP request threads, the system:
+
+1. Accepts job requests
+2. Immediately returns a Job ID
+3. Processes jobs asynchronously using worker threads
+4. Stores **cold, reliable data** in MySQL
+5. Stores **hot, frequently changing data** in Redis
+6. Applies rate limiting to protect APIs
+
+This architecture is commonly used in **banking systems**, **reporting engines**, **analytics pipelines**, **file processing services**, and **enterprise schedulers**.
 
 ---
 
@@ -19,24 +36,32 @@ This architecture is widely used in **banking, e‑commerce, reporting, analytic
 
 This project was built to deeply understand:
 
-* Why long-running tasks must **not block request threads**
-* Producer–Consumer architecture
-* Thread pools and task execution
-* Safe concurrency with shared resources
-* Clean layering and separation of concerns
-* Gradual evolution from in-memory design to database-backed systems
+- Why long-running tasks must never block request threads
+- Producer–Consumer architecture
+- Thread pools and safe concurrency
+- Asynchronous job orchestration
+- Database vs cache responsibility split
+- Job cancellation in real systems
+- Read-heavy optimization using Redis
+- API protection using rate limiting
+- Clean layering and backend evolution
 
 
 ---
 
 ## 🧠 Core Idea (In Simple Terms)
 
-1. Client sends `POST /jobs`
-2. Server creates a job record and returns a Job ID immediately
-3. Job ID is pushed into a queue
-4. Background workers pick jobs from the queue
-5. Workers update job status in the database
-6. Client polls `GET /jobs/{id}` to check status
+```
+1. Client submits a job request
+2. Server immediately returns a Job ID
+3. Job ID is placed into a queue
+4. Worker threads process the job in background
+5. Job progress & status are updated in Redis
+6. Final job result is stored in MySQL
+7. Client polls job status efficiently
+8. Client can cancel a running job
+9. Rate limiting protects the system from overload
+```
 
 ---
 
@@ -46,61 +71,80 @@ This project was built to deeply understand:
 Client
   |
   | POST /jobs
+  | GET /jobs/{id}
+  | DELETE /jobs/{id}
   v
 JobController
   |
   v
-JobService  (Producer)
+JobService (Producer + Orchestrator)
   |
-  | save job to DB
-  | enqueue jobId
+  | Save cold data → MySQL
+  | Save hot data  → Redis
+  | Enqueue jobId
   v
 BlockingQueue<Long>
   |
   v
-JobWorker (Consumer threads)
+JobWorker (Consumer Threads)
   |
-  | process job
-  | update DB
+  | Update progress/status → Redis
+  | Persist final result   → MySQL
   v
-MySQL Database
+MySQL (Source of Truth)
+Redis (Hot State Cache)
 ```
 
 ---
 
-## 🧩 Key Architectural Patterns Used
+## 🧩 Key Architectural Patterns
 
 ### 1. Producer–Consumer Pattern
 
-* **Producer**: `JobService`
-* **Consumer**: `JobWorker`
-* **Buffer**: `BlockingQueue<Long>`
+- **Producer:** `JobService`
+- **Consumer:** `JobWorker`
+- **Buffer:** `BlockingQueue<Long>`
 
-This ensures thread-safe coordination between request threads and worker threads.
-
----
+Ensures thread-safe coordination between HTTP threads and worker threads.
 
 ### 2. Asynchronous Processing
 
-* HTTP threads return immediately
-* Heavy work runs in background threads
-* Improves throughput and scalability
+- HTTP requests return immediately
+- Jobs execute in background threads
+- System remains responsive under load
 
----
+### 3. Cold Data vs Hot Data Separation
 
-### 3. Single Source of Truth
+| Data Type      | Stored In | Reason                 |
+|----------------|-----------|------------------------|
+| Job result     | MySQL     | Reliable & persistent  |
+| Final status   | MySQL     | Source of truth        |
+| Progress       | Redis     | Changes frequently     |
+| Running status | Redis     | Read-heavy             |
 
-* Database is the **only source of job state**
-* No in-memory job state is relied upon
-* System is restart-safe
+This prevents excessive database writes and improves scalability.
 
----
+### 4. Redis as Performance Accelerator
 
-### 4. Thread Pool Management
+- In-memory storage
+- O(1) reads and writes
+- Handles high-frequency polling
+- TTL-based automatic cleanup
+- Drastically reduces database load
 
-* Uses Spring’s `ThreadPoolTaskExecutor`
-* Fixed number of worker threads
-* Graceful shutdown supported
+### 5. Rate Limiting
+
+- Protects APIs from abuse
+- Prevents polling storms
+- Ensures fairness across clients
+- Improves overall system stability
+
+### 6. Cancel Job Support
+
+- Clients can cancel running jobs
+- Workers check cancellation state
+- Graceful termination of execution
+- Prevents wasted compute resources
 
 ---
 
@@ -109,89 +153,76 @@ This ensures thread-safe coordination between request threads and worker threads
 ```
 com.savi.jobprocessor
 │
-├── config        → Executor configuration
+├── config        → Executor & rate limiter config
 ├── controller    → REST APIs
 ├── core          → Domain enums (JobStatus)
 ├── dto           → API response models
-├── entity        → JPA entities
+├── entity        → JPA entities (cold data)
+├── redis         → Redis hot-state services
 ├── repository    → Database access
-├── service       → Business logic & job orchestration
-├── worker        → Background job execution
+├── service       → Job orchestration & fallback logic
+└── worker        → Background job execution
 ```
 
 ---
 
-## 🔑 Important Classes Explained
-
-### ExecutorConfig
-
-* Defines `ThreadPoolTaskExecutor` as a Spring bean
-* Controls number of worker threads
-* Handles graceful shutdown
-
----
+## 🔑 Important Components
 
 ### JobController
 
-* Entry point for clients
-* Exposes:
+Exposes REST APIs:
+- `POST /jobs` - Create a new job
+- `GET /jobs/{id}` - Get job status
+- `DELETE /jobs/{id}` - Cancel a job
 
-  * `POST /jobs`
-  * `GET /jobs/{id}`
-* Does **not** execute jobs
-
----
+**Responsibilities:**
+- No business logic
+- No job execution
+- Thin, clean controller
 
 ### JobService
 
-* Creates jobs
-* Persists jobs in database
-* Pushes job IDs to queue
-* Starts worker threads
-
-Acts as the **producer**.
-
----
+**Responsibilities:**
+- Creates jobs
+- Stores persistent data in MySQL
+- Enqueues job IDs
+- Retrieves job state using Redis-first fallback logic
+- Acts as the system orchestrator
 
 ### JobWorker
 
-* Runs in background threads
-* Picks job IDs from queue
-* Fetches job from DB
-* Updates status:
+**Responsibilities:**
+- Runs inside a thread pool
+- Picks job IDs from queue
+- Updates progress in Redis
+- Checks for cancellation
+- Persists final result in MySQL
+- Cleans Redis state using TTL or delete
 
-  * PENDING → RUNNING → COMPLETED / FAILED
+### RedisJobStateService
 
-Acts as the **consumer**.
+**Responsibilities:**
+- Stores job status & progress
+- Uses Redis Hash per job
+- Applies TTL for cleanup
+- Handles hot state efficiently
 
----
+### JobEntity (MySQL)
 
-### JobEntity
+Stores **cold, reliable data:**
+- Final status
+- Result
+- Error message
+- Timestamps
 
-* Represents job state in database
-* Stores:
+Ensures crash recovery and auditability.
 
-  * status
-  * progress
-  * result
-  * error message
-  * timestamps
+### DTOs
 
----
-
-### JobRepository
-
-* Spring Data JPA repository
-* Handles all DB operations
-* No SQL written manually
-
----
-
-### DTOs (PostJobResponse / GetJobResponse)
-
-* Separate API contracts for POST and GET
-* Prevents leaking internal structure
-* Clean and versionable API design
+- Clear separation of API contracts
+- Redis-based DTO for fast responses
+- Database-based DTO for fallback
+- Prevents leaking internal models
 
 ---
 
@@ -199,16 +230,16 @@ Acts as the **consumer**.
 
 ```
 PENDING
-   ↓ (picked by worker)
+   ↓
 RUNNING
    ↓
-COMPLETED / FAILED
+COMPLETED / FAILED / CANCELLED
 ```
 
-Rules:
-
-* Only workers change execution state
-* Controller never changes job status
+**Rules:**
+- Workers control execution
+- Redis handles live state
+- MySQL is the final authority
 
 ---
 
@@ -216,37 +247,60 @@ Rules:
 
 ### Create Job
 
-```
+**Request:**
+```http
 POST /jobs
 ```
 
-Response:
-
+**Response:**
 ```json
 {
-  "id": 5,
+  "jobId": 5,
   "status": "PENDING",
   "progress": 0
 }
 ```
 
----
+### Poll Status (Fast Path – Redis)
 
-### Check Status
-
-```
+**Request:**
+```http
 GET /jobs/5
 ```
 
-Response:
+**Response:**
+```json
+{
+  "jobId": 5,
+  "status": "RUNNING",
+  "progress": 60
+}
+```
 
+### Poll Status (Fallback – MySQL)
+
+**Response:**
 ```json
 {
   "jobId": 5,
   "status": "COMPLETED",
   "progress": 100,
-  "result": "Job Completed Successfully",
-  "errorMessage": null
+  "result": "Job Completed Successfully"
+}
+```
+
+### Cancel Job
+
+**Request:**
+```http
+DELETE /jobs/5
+```
+
+**Response:**
+```json
+{
+  "jobId": 5,
+  "status": "CANCELLED"
 }
 ```
 
@@ -254,39 +308,52 @@ Response:
 
 ## ⚙ Technology Stack
 
-* Java 21
-* Spring Boot
-* Spring Data JPA
-* ThreadPoolTaskExecutor
-* MySQL
-* Maven
+- **Java 21**
+- **Spring Boot**
+- **Spring Data JPA**
+- **Spring Data Redis**
+- **ThreadPoolTaskExecutor**
+- **MySQL**
+- **Redis**
+- **Maven**
 
 ---
 
 ## 🚧 Challenges Faced & Solutions
 
-### 1. Blocking HTTP Threads
-
-Solved by moving execution to background workers.
-
-### 2. Thread Safety
-
-Solved using `BlockingQueue` and thread pools.
-
-### 3. In-Memory vs Database State
-
-Solved via phased migration to DB-backed jobs.
-
-### 4. Clean API Design
-
-Solved using separate DTOs for POST and GET.
+| Challenge | Solution |
+|-----------|----------|
+| Excessive DB Writes | Moved progress & status updates to Redis |
+| Polling Load | Redis-first reads and rate limiting |
+| Job Cancellation | Shared state checks and graceful exit |
+| System Abuse | Implemented rate limiting |
+| Clean Evolution | System evolved without breaking APIs |
 
 ---
 
 ## 🔮 Future Enhancements
 
-* Redis caching for job status
-* Kafka / RabbitMQ for distributed workers
-* Authentication & authorization
-* Rate limiting
-* UI dashboard
+- [ ] Distributed workers (Kafka / RabbitMQ)
+- [ ] WebSocket live updates
+- [ ] Job retry & backoff
+- [ ] UI dashboard
+- [ ] Horizontal scaling
+- [ ] Metrics & tracing
+
+
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+---
+
+## 📧 Contact
+
+For questions or feedback, please open an issue in the repository.
+
+---
+
+**Built with ❤️ to demonstrate production-grade backend architecture**
