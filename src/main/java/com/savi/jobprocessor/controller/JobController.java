@@ -1,7 +1,9 @@
 package com.savi.jobprocessor.controller;
 
 
+import com.savi.jobprocessor.dto.ApiResponse;
 import com.savi.jobprocessor.dto.CancelJobResponse;
+import com.savi.jobprocessor.dto.ErrorResponse;
 import com.savi.jobprocessor.dto.PostJobResponse;
 import com.savi.jobprocessor.entity.JobEntity;
 import com.savi.jobprocessor.ratelimit.RateLimiterService;
@@ -9,6 +11,7 @@ import com.savi.jobprocessor.service.JobService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,8 +29,7 @@ public class JobController {
     }
 
     @PostMapping
-    public ResponseEntity<?> createJob(HttpServletRequest request){
-        try {
+    public ResponseEntity<ApiResponse<PostJobResponse>> createJob(HttpServletRequest request){
 
             String clientIp=request.getRemoteAddr();
             rateLimiterService.validateCreateJobRequest(clientIp);
@@ -37,64 +39,30 @@ public class JobController {
 
             log.info("Job Created Successfully with id={}", job.getId());
             return ResponseEntity
-                    .ok(new PostJobResponse(job));
-        }catch (Exception e){
-
-            log.info("Request limit exceeded for the ip: {}",request);
-            return ResponseEntity.status(429).body(
-                    new Object(){
-                        public final String message=e.getMessage();
-                    }
-            );
-        }
+                    .status(HttpStatus.CREATED).body(ApiResponse.success(PostJobResponse.from(job)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<?> getJob(@PathVariable Long id){
+    public ResponseEntity<ApiResponse<?>> getJob(@PathVariable Long id){
 
         log.info("Received Request to fetch job id={} ",id);
         Object job= jobService.getJob(id);
 
         if(job==null){
             log.warn("Job id={} not Found",id);
+            ErrorResponse error=ErrorResponse.of(404,"Not Found","Job Not Found with id: "+id);
             return ResponseEntity
-                    .status(404)
-                    .body(
-                            new Object(){
-                                public final String message="Job Not Found";
-                                public final Long jobid= id;
-                            }
-                    );
+                    .status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.failure(error));
         }
-
-        return ResponseEntity.ok(job);
+        return ResponseEntity.ok(ApiResponse.success(job));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteJob(@PathVariable Long id){
+    public ResponseEntity<ApiResponse<CancelJobResponse>> deleteJob(@PathVariable Long id){
 
         log.info("Received Request to Cancel Job id={}",id);
-        try{
-            JobEntity cancelledJob= jobService.cancelJob(id);
-            return ResponseEntity.ok(new CancelJobResponse(cancelledJob));
-
-        }catch (IllegalStateException ex){
-
-            if(ex.getMessage().contains("not found")){
-                    return ResponseEntity.status(404).body(
-                            new Object(){
-                                public String message="Job Not Found";
-                                public final Long jobId=id;
-                            }
-                    );
-            }
-
-            return ResponseEntity.status(409).body(
-                    new Object(){
-                        public final String message= ex.getMessage();
-                        public final Long jobId=id;
-                    }
-            );
-        }
+        JobEntity cancelJob= jobService.cancelJob(id);
+        return ResponseEntity.ok(ApiResponse.success(CancelJobResponse.from(cancelJob)));
     }
 }

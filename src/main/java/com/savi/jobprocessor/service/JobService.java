@@ -1,15 +1,16 @@
 package com.savi.jobprocessor.service;
 
+import com.savi.jobprocessor.dto.GetJobResponse;
 import com.savi.jobprocessor.dto.RedisJobResponse;
 import com.savi.jobprocessor.entity.JobEntity;
 import com.savi.jobprocessor.core.JobStatus;
+import com.savi.jobprocessor.kafka.JobKafkaProducer;
 import com.savi.jobprocessor.redis.RedisJobStateService;
 import com.savi.jobprocessor.repository.JobRepository;
-import com.savi.jobprocessor.worker.JobWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 import java.util.concurrent.*;
@@ -18,39 +19,34 @@ import java.util.concurrent.*;
 @Service
 public class JobService {
 
-    private final BlockingQueue<Long> jobQueue=new LinkedBlockingQueue<>();
-
-    private final ApplicationContext context;
-
-    private final Executor taskExecutor;
+    private final ConcurrentHashMap<Long,Boolean>cancelFlag= new ConcurrentHashMap<>();
 
     private final JobRepository jobRepository;
-
     private final RedisJobStateService redisService;
+    private final JobKafkaProducer jobKafkaProducer;
 
     private static final Logger log =
             LoggerFactory.getLogger(JobService.class);
 
 
-    public JobService(JobRepository jobRepository, ApplicationContext context, Executor taskExecutor, RedisJobStateService redisService) {
+    public JobService(JobRepository jobRepository, RedisJobStateService redisService,JobKafkaProducer jobKafkaProducer) {
         this.jobRepository = jobRepository;
-        this.context=context;
-        this.taskExecutor=taskExecutor;
         this.redisService=redisService;
-        startWorkers();
+        this.jobKafkaProducer=jobKafkaProducer;
+        //  startWorkers();
     }
 
+    @Transactional
     public JobEntity createJob(){
 
-        JobEntity jobEntity =new JobEntity();
-        jobEntity.setStatus(JobStatus.PENDING);
-        jobEntity.setProgress(0);
+        JobEntity jobEntity=JobEntity.builder()
+                .status(JobStatus.PENDING)
+                .progress(0)
+                .build();
 
         JobEntity savedJob=jobRepository.save(jobEntity);
-        jobQueue.add(savedJob.getId());
-
+        jobKafkaProducer.publishJob(savedJob.getId());
         log.info("Job id={} saved to DB and queued for processing", savedJob.getId());
-
         return savedJob;
     }
 
@@ -66,9 +62,10 @@ public class JobService {
         }
 
         log.warn("Redis MISS for job id={}, falling back to DB", id);
-        return jobRepository.findById(id).orElse(null);
+        return jobRepository.findById(id).map(GetJobResponse::from).orElse(null);
     }
 
+    @Transactional
     public JobEntity cancelJob(Long id){
 
         log.info("Attempting to cancel job id={}", id);
@@ -85,20 +82,19 @@ public class JobService {
             throw new IllegalStateException("Job cannot be cancelled in this state:  "+job.getStatus());
         }
 
+        cancelFlag.put(id,true);
         job.setStatus(JobStatus.CANCELLED);
         log.info("Job id={} cancelled successfully", id);
         return jobRepository.save(job);
     }
 
-    public BlockingQueue<Long> getJobQueue(){
-        return jobQueue;
+    public boolean isCanceled(Long jobId){
+        return cancelFlag.getOrDefault(jobId,false);
     }
 
-    public void startWorkers(){
-         for(int i=0;i<3;i++){
-
-             JobWorker worker=context.getBean(JobWorker.class,jobQueue,jobRepository,redisService);
-             taskExecutor.execute(worker);
-         }
+    public void clearCancelJob(Long jobId){
+        cancelFlag.remove(jobId);
     }
+
+
 }
