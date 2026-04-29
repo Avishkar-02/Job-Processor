@@ -26,6 +26,9 @@ public class JobEntity {
 
     private long progress;
 
+    @Version
+    private long version;
+
     @Column(columnDefinition = "TEXT")
     private String result;
 

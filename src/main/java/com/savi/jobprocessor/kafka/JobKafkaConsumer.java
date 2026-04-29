@@ -40,8 +40,15 @@ public class JobKafkaConsumer {
 
     private void processJob(Long jobId) {
         try {
+
             JobEntity job = jobRepository.findById(jobId)
                     .orElseThrow(() -> new IllegalStateException("Job not found"));
+
+            // Idempotency guard
+            if (job.getStatus() != JobStatus.PENDING) {
+                log.warn("Job {} already in status {}, skipping", jobId, job.getStatus());
+                return;
+            }
 
             job.setStatus(JobStatus.RUNNING);
             jobRepository.save(job);
