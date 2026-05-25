@@ -89,8 +89,17 @@ public class JobKafkaConsumer {
 
     private void processJob(Long jobId) {
         try {
-            JobEntity job = jobRepository.findById(jobId)
-                    .orElseThrow(() -> new IllegalStateException("Job not found: " + jobId));
+            // In JobKafkaConsumer.processJob() — replace orElseThrow with retry
+            JobEntity job = null;
+            for (int attempt = 0; attempt < 3; attempt++) {
+                job = jobRepository.findById(jobId).orElse(null);
+                if (job != null) break;
+                Thread.sleep(200); // wait for DB commit to propagate
+            }
+            if (job == null) {
+                log.error("Job {} not found after retries — skipping", jobId);
+                return;
+            }
 
             // ── Idempotency guard (first line of defence) ───────────────
             // This handles Kafka at-least-once delivery: if Kafka redelivers

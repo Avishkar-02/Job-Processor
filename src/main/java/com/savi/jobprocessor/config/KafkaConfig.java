@@ -1,5 +1,6 @@
 package com.savi.jobprocessor.config;
 
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.LongDeserializer;
@@ -10,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
+import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.*;
 
 import java.util.HashMap;
@@ -23,6 +25,16 @@ public class KafkaConfig {
     private String bootstrapServers;
 
     private static final String GROUP_ID = "job-processor-group";
+
+    @Bean
+    public NewTopic jobRequestsTopic() {
+        // 3 partitions = 3 consumers can work in parallel
+        // replicationFactor=1 is fine for local/single broker
+        return TopicBuilder.name("job-requests")
+                .partitions(3)
+                .replicas(1)
+                .build();
+    }
 
     // ─── PRODUCER ─────────────────────────────────────────────
 
@@ -47,6 +59,11 @@ public class KafkaConfig {
         // Default is already MAX_INT in Kafka 3.x, but being explicit is better.
         config.put(ProducerConfig.RETRIES_CONFIG, Integer.MAX_VALUE);
 
+        config.put(ProducerConfig.PARTITIONER_CLASS_CONFIG,
+                org.apache.kafka.clients.producer.RoundRobinPartitioner.class);
+// Also set linger.ms=0 so sticky batching doesn't accumulate
+        config.put(ProducerConfig.LINGER_MS_CONFIG, 0);
+
         return new DefaultKafkaProducerFactory<>(config);
     }
 
@@ -66,6 +83,8 @@ public class KafkaConfig {
         config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,  "earliest");
         config.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,   StringDeserializer.class);
         config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,  LongDeserializer.class);
+        config.put(ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG,
+                org.apache.kafka.clients.consumer.RoundRobinAssignor.class.getName());
 
         return new DefaultKafkaConsumerFactory<>(config);
     }
