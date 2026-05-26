@@ -1,0 +1,53 @@
+# ─────────────────────────────────────────────────────────────
+# Dockerfile — React frontend (job-processor-ui)
+#
+# Same multi-stage pattern as the backend:
+# Stage 1 (builder): Node.js to install dependencies and run Vite build.
+# Stage 2 (runtime): nginx to serve the static output.
+#
+# The final image contains ONLY nginx + the built HTML/CSS/JS.
+# No Node.js, no npm, no source files — much smaller and more secure.
+# ─────────────────────────────────────────────────────────────
+
+# ── Stage 1: BUILD ────────────────────────────────────────────
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# ── Dependency caching (same logic as backend) ─────────────────
+# Copy package files FIRST. If they haven't changed, Docker reuses
+# the cached npm install layer — saves ~30 seconds on rebuilds.
+COPY package.json package-lock.json* ./
+
+# ci = clean install (reproducible from lockfile, faster than install)
+RUN npm ci
+
+# Now copy source — this layer invalidates when any source file changes
+COPY . .
+
+# Run Vite's production build.
+# Output: ./dist/ containing index.html + hashed JS/CSS bundles.
+# The hash in filenames (e.g. main.a3f9bc12.js) enables aggressive
+# browser caching — see nginx.conf's 1-year Cache-Control for assets.
+RUN npm run build
+
+# ── Stage 2: RUNTIME ─────────────────────────────────────────
+FROM nginx:1.27-alpine AS runtime
+
+# Remove the default nginx welcome page
+RUN rm -rf /usr/share/nginx/html/*
+
+# Copy our custom nginx config (proxy + SPA routing + caching headers)
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# Copy the built React app from the builder stage
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# nginx listens on port 80 by default
+EXPOSE 80
+
+# nginx starts its own daemon; no need for ENTRYPOINT override
+CMD ["nginx", "-g", "daemon off;"]
+# "daemon off" keeps nginx in the foreground so Docker can manage it.
+# Without this, nginx would fork to background, the container process
+# (PID 1) would exit immediately, and Docker would stop the container.

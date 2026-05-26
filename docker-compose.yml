@@ -1,0 +1,230 @@
+# docker-compose.yml — Orchestrates the full Async Job Processing System.
+#
+# SERVICES (in startup order):
+#   1. mysql      — persistent storage (source of truth)
+#   2. redis      — hot-state cache + rate limit counters
+#   3. zookeeper  — Kafka's cluster coordinator (required by Kafka)
+#   4. kafka      — message broker (job-requests topic)
+#   5. backend    — Spring Boot application
+#   6. frontend   — React app served by nginx
+#
+# NETWORKING:
+# All services share the "job-net" bridge network.
+# Containers reference each other by SERVICE NAME (e.g. "mysql", "kafka").
+# Docker's internal DNS resolves these names to container IPs automatically.
+# This is why application.properties uses ${DB_HOST:-localhost} —
+# in Docker it's "mysql", locally it's "localhost".
+#
+# PORTS: Only frontend (80) and backend (8080) are exposed to the host.
+# mysql/redis/kafka/zookeeper are internal — reachable only within job-net.
+# This is good security practice: no reason to expose Kafka to your laptop.
+
+version: "3.9"
+
+services:
+
+  # ── MySQL ────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: job-mysql
+
+    # Environment variables configure the MySQL instance on first start.
+    # These match the datasource credentials in application.properties.
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE:      job_processor
+
+    ports:
+      - "3307:3306"   # Expose for local DB tools (DBeaver, MySQL Workbench)
+
+    volumes:
+      # Named volume: MySQL data survives "docker compose down".
+      # Without this, every restart wipes your database.
+      # Only "docker compose down -v" deletes it.
+      - mysql-data:/var/lib/mysql
+
+    networks:
+      - job-net
+
+    healthcheck:
+      # mysqladmin ping is the standard way to test MySQL readiness.
+      # Docker uses this to know when MySQL is ready for connections.
+      # Without a healthcheck, the backend might start before MySQL is ready,
+      # fail to connect, and crash — even though MySQL starts "fast".
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval:    10s
+      timeout:     5s
+      retries:     5
+      start_period: 30s  # Give MySQL time to initialize before first check
+
+  # ── Redis ────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+
+    # "alpine" variants are smaller (~40 MB vs ~100 MB).
+    # For Redis, alpine is perfectly suitable — no special requirements.
+    container_name: job-redis
+
+    ports:
+      - "6379:6379"   # Expose for redis-cli debugging on host
+
+    # --save ""       → Disable RDB persistence (we don't need Redis to survive restarts)
+    # --appendonly no → Disable AOF persistence (same reason)
+    # Redis here is a cache (hot state) — if it restarts, the backend
+    # falls back to MySQL transparently. No need to persist Redis data.
+    command: redis-server --save "" --appendonly no
+
+    networks:
+      - job-net
+
+    healthcheck:
+      test:     ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout:  5s
+      retries:  3
+
+  # ── Zookeeper ────────────────────────────────────────────────
+  zookeeper:
+    # Zookeeper manages Kafka's cluster state (which broker owns which partition).
+    # In production you'd use KRaft mode (Kafka 3.x without Zookeeper),
+    # but for local dev Zookeeper keeps the config simpler and more familiar.
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: job-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME:   2000
+    networks:
+      - job-net
+
+  # ── Kafka ────────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: job-kafka
+    depends_on:
+      - zookeeper  # Kafka needs Zookeeper running first
+
+    environment:
+      KAFKA_BROKER_ID: 1
+
+      # ZOOKEEPER_CONNECT: how Kafka finds its Zookeeper.
+      # "zookeeper" resolves to the Zookeeper container via Docker DNS.
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+
+      # LISTENERS: what addresses Kafka binds to INSIDE the container.
+      # PLAINTEXT://0.0.0.0:9092 = bind to all interfaces on port 9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+
+      # ADVERTISED_LISTENERS: what address Kafka tells CLIENTS to connect to.
+      # "kafka" resolves to this container within the job-net Docker network.
+      # This is the address the Spring Boot backend uses (BOOTSTRAP_SERVERS).
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+
+      # Auto-create topics: the "job-requests" topic is created automatically
+      # when the producer first publishes. This simplifies setup (no manual
+      # topic creation step). Fine for dev; in production you'd pre-create topics
+      # with explicit partition counts for predictable throughput.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+
+      # Replication factor 1 = no redundancy.
+      # In production you'd use 3 for fault tolerance.
+      # For a single-broker dev setup, 1 is required.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR:       1
+
+    ports:
+      # Expose Kafka to the host for debugging with kafka-console-consumer etc.
+      # Note: from the host you'd use localhost:9092, but from other
+      # containers you use kafka:9092.
+      - "9092:9092"
+
+    networks:
+      - job-net
+
+    healthcheck:
+      # Check if Kafka's broker API is responding
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout:  10s
+      retries:  5
+      start_period: 30s
+
+  # ── Spring Boot Backend ──────────────────────────────────────
+  backend:
+    build:
+      context: ./job-processor   # Directory containing pom.xml and src/
+      dockerfile: ../Dockerfile.backend  # Path relative to context
+
+    container_name: job-backend
+
+    # depends_on with condition: wait until dependencies are healthy
+    # (not just started — "started" doesn't mean "ready to accept connections")
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+    environment:
+      # Override application.properties values for Docker environment.
+      # Spring Boot reads these as ${DB_HOST} placeholders if you use them,
+      # OR you can override entire properties like SPRING_DATASOURCE_URL.
+      #
+      # Spring Boot property → env var mapping rule:
+      # spring.datasource.url → SPRING_DATASOURCE_URL (dots become underscores, uppercase)
+      SPRING_DATASOURCE_URL:      jdbc:mysql://mysql:3306/job_processor
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root
+
+      # "mysql" = Docker service name → resolves to MySQL container IP
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+
+      # "kafka" = Docker service name → resolves to Kafka container IP
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+    ports:
+      - "8080:8080"   # Expose for direct API testing (curl, Postman)
+
+    networks:
+      - job-net
+
+    # Restart policy: restart on crash, but not if manually stopped.
+    # Useful for the first few seconds when Kafka might not be fully ready
+    # even after healthcheck (race condition between "healthy" and "fully ready").
+    restart: on-failure
+
+  # ── React Frontend ───────────────────────────────────────────
+  frontend:
+    build:
+      context: ./job-processor-ui         # Directory containing package.json
+      dockerfile: ../Dockerfile.frontend
+
+    container_name: job-frontend
+
+    depends_on:
+      - backend   # nginx proxies /api/* to backend — backend must be up first
+
+    ports:
+      # The main entry point for users.
+      # Open http://localhost in your browser.
+      - "80:80"
+
+    networks:
+      - job-net
+
+# ── NAMED VOLUMES ────────────────────────────────────────────
+volumes:
+  mysql-data:
+    # Docker manages this volume at /var/lib/docker/volumes/mysql-data
+    # It persists across "docker compose down" and even container recreation.
+    # Delete with "docker compose down -v" or "docker volume rm mysql-data"
+
+# ── NETWORKS ─────────────────────────────────────────────────
+networks:
+  job-net:
+    driver: bridge
+    # Bridge network = containers can communicate by service name.
+    # They're isolated from other Docker networks on your machine.
+    # Default Docker networking, but naming it makes it explicit and inspectable.
