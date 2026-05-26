@@ -1,9 +1,24 @@
-/target
-/.idea
-/.classpath
-/.project
-/.settings
-/bin
-/build
-*.log
+# Frontend
+job-processor-ui/node_modules/
+job-processor-ui/dist/
 
+# Backend
+job-processor/target/
+job-processor/target
+job-processor/.idea
+job-processor/.classpath
+job-processor/.project
+job-processor/.settings
+job-processor/bin
+job-processor/build
+job-processor/*.log
+
+
+
+# Documentation — only keep what's needed
+documentation/Asynchronous Job Processing System – Complete Technical Documentation.docx
+documentation/Asynchronous Job Processing System – Detailed Project Documentation.docx
+documentation/Job_Processor_Interview_QA_Detailed.docx
+documentation/job-processor-documentation.docx
+documentation/Rate Limiter – Detailed Design & Implementation Documentation.docx
+documentation/Redis_Integration_Documentation.docx

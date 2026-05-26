@@ -1,0 +1,693 @@
+/**
+ * index.css — Global styles for the Job Processor dashboard.
+ *
+ * Design direction: "Industrial terminal" — dark background, monospace accents,
+ * teal/green for success states, amber for warnings, red for errors.
+ * Feels like a real ops dashboard, not a generic CRUD app.
+ *
+ * CSS custom properties (variables) are defined on :root so every component
+ * inherits them. Change a color once here → updates everywhere.
+ */
+
+/* ─── RESET + BASE ──────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  /* Core palette */
+  --bg:          #0d1117;   /* GitHub-dark level dark */
+  --surface:     #161b22;   /* Cards / panels */
+  --surface-2:   #21262d;   /* Nested surfaces */
+  --border:      #30363d;   /* Subtle borders */
+  --border-hi:   #484f58;   /* Hover/focus borders */
+
+  /* Text */
+  --text-primary:   #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted:     #484f58;
+
+  /* Accent colors — map to job statuses */
+  --teal:   #2ea043;   /* COMPLETED / success */
+  --blue:   #388bfd;   /* info / RUNNING indicator */
+  --amber:  #d29922;   /* PENDING / warning */
+  --red:    #da3633;   /* FAILED / error */
+  --purple: #8957e5;   /* accent for IDs, tags */
+
+  /* Typography */
+  --font-sans: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --font-ui:   system-ui, -apple-system, sans-serif;
+
+  /* Spacing scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* Border radius */
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+
+  /* Transitions */
+  --tx: 150ms ease;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+code {
+  font-family: var(--font-sans);
+  font-size: 0.9em;
+  color: var(--purple);
+  background: rgba(137, 87, 229, 0.12);
+  padding: 1px 5px;
+  border-radius: var(--r-sm);
+}
+
+/* ─── APP SHELL ─────────────────────────────────────────────── */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* ─── HEADER ────────────────────────────────────────────────── */
+.app-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: var(--sp-4) var(--sp-8);
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-4);
+}
+
+.app-title {
+  font-family: var(--font-sans);
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+/* The underscore accent between "Job" and "Processor" */
+.app-title .accent {
+  color: var(--teal);
+}
+
+/* Blinking terminal cursor after the title */
+.cursor {
+  color: var(--teal);
+  animation: blink 1.1s step-end infinite;
+  font-size: 1.1rem;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.app-subtitle {
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ─── MAIN LAYOUT ───────────────────────────────────────────── */
+.app-main {
+  flex: 1;
+  display: grid;
+  /*
+   * sidebar is fixed at 340px; tracker-panel fills remaining space.
+   * On narrow screens (< 900px) we stack them vertically.
+   */
+  grid-template-columns: 340px 1fr;
+  gap: var(--sp-6);
+  padding: var(--sp-6) var(--sp-8);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .app-main {
+    grid-template-columns: 1fr;
+    padding: var(--sp-4);
+  }
+}
+
+/* ─── SIDEBAR ───────────────────────────────────────────────── */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  /* Stick to top on scroll so controls stay accessible */
+  position: sticky;
+  top: var(--sp-4);
+}
+
+/* ─── CARD (reusable container) ─────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+}
+
+.card-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+
+/* Status dot in card title */
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot-green { background: var(--teal); }
+.dot-blue  { background: var(--blue); }
+
+.card-desc {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-4);
+  line-height: 1.5;
+}
+
+/* ─── SUBMIT CARD ───────────────────────────────────────────── */
+.btn-submit {
+  width: 100%;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--teal);
+  color: #fff;
+  border: none;
+  border-radius: var(--r-md);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  transition: background var(--tx), opacity var(--tx);
+}
+
+.btn-submit:hover:not(:disabled) {
+  background: #3fb950;
+}
+
+.btn-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-submit.loading {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+.icon-plus {
+  font-size: 1.2em;
+  line-height: 1;
+}
+
+/* ─── FEEDBACK MESSAGES ─────────────────────────────────────── */
+.feedback {
+  margin-top: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  font-size: 0.82rem;
+}
+
+.feedback-success {
+  background: rgba(46, 160, 67, 0.12);
+  border: 1px solid rgba(46, 160, 67, 0.3);
+  color: #3fb950;
+}
+
+.feedback-error {
+  background: rgba(218, 54, 51, 0.12);
+  border: 1px solid rgba(218, 54, 51, 0.3);
+  color: #f85149;
+}
+
+.rate-hint {
+  color: var(--text-secondary);
+}
+
+/* Rate limit indicator */
+.rate-info {
+  margin-top: var(--sp-4);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.rate-badge {
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  background: rgba(210, 153, 34, 0.15);
+  border: 1px solid rgba(210, 153, 34, 0.3);
+  color: var(--amber);
+  padding: 1px 6px;
+  border-radius: 20px;
+}
+
+/* ─── SYSTEM INFO CARD ──────────────────────────────────────── */
+.info-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.info-item {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+}
+
+.info-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.info-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: block;
+  margin-bottom: 1px;
+}
+
+.info-desc {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Compact horizontal flow diagram */
+.flow-diagram {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  align-items: center;
+  padding: var(--sp-3);
+  background: var(--bg);
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+}
+
+.flow-step {
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.flow-arrow {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+/* ─── TRACKER PANEL ─────────────────────────────────────────── */
+.tracker-panel {
+  min-height: 300px;
+}
+
+.tracker-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+  color: var(--text-secondary);
+  gap: var(--sp-3);
+}
+
+.empty-icon {
+  font-size: 2.5rem;
+  opacity: 0.3;
+}
+
+.empty-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  max-width: 400px;
+}
+
+.section-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-4);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.job-count {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 0.75rem;
+  padding: 0 7px;
+  color: var(--text-muted);
+}
+
+.tracker-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* ─── JOB CARD ──────────────────────────────────────────────── */
+.job-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4) var(--sp-5);
+  /*
+   * Left border color changes per status — the only "color" the card uses.
+   * Everything else is neutral so the status color pops.
+   */
+  border-left: 3px solid var(--border);
+  transition: border-color var(--tx);
+}
+
+/* Status-specific left border colors */
+.card-pending   { border-left-color: var(--amber); }
+.card-running   { border-left-color: var(--blue); }
+.card-completed { border-left-color: var(--teal); }
+.card-failed    { border-left-color: var(--red); }
+.card-cancelled { border-left-color: var(--text-muted); }
+
+.job-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--sp-3);
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.job-id-group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.job-id-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.job-id {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--purple);
+  background: rgba(137, 87, 229, 0.12);
+  padding: 2px 7px;
+  border-radius: var(--r-sm);
+}
+
+.job-badge-group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* ─── CACHE SOURCE BADGE ─────────────────────────────────────── */
+/*
+ * Shows whether the latest status came from Redis or MySQL.
+ * This is a key feature of the system — make it visible.
+ */
+.cache-badge {
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  padding: 2px 6px;
+  border-radius: 20px;
+  border: 1px solid;
+  cursor: default;
+}
+
+.cache-redis {
+  background: rgba(56, 139, 253, 0.1);
+  border-color: rgba(56, 139, 253, 0.3);
+  color: var(--blue);
+}
+
+.cache-db {
+  background: rgba(139, 148, 158, 0.1);
+  border-color: rgba(139, 148, 158, 0.3);
+  color: var(--text-muted);
+}
+
+/* ─── STATUS BADGE ───────────────────────────────────────────── */
+.status-badge {
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 3px 9px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid transparent;
+}
+
+.badge-pending {
+  background: rgba(210, 153, 34, 0.12);
+  border-color: rgba(210, 153, 34, 0.3);
+  color: var(--amber);
+}
+
+.badge-running {
+  background: rgba(56, 139, 253, 0.12);
+  border-color: rgba(56, 139, 253, 0.3);
+  color: var(--blue);
+}
+
+.badge-completed {
+  background: rgba(46, 160, 67, 0.12);
+  border-color: rgba(46, 160, 67, 0.3);
+  color: var(--teal);
+}
+
+.badge-failed {
+  background: rgba(218, 54, 51, 0.12);
+  border-color: rgba(218, 54, 51, 0.3);
+  color: #f85149;
+}
+
+.badge-cancelled {
+  background: rgba(72, 79, 88, 0.2);
+  border-color: rgba(72, 79, 88, 0.5);
+  color: var(--text-muted);
+}
+
+/* Pulsing animation for active states (PENDING, RUNNING) */
+.badge-pulse {
+  animation: pulse-border 2s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
+
+.badge-icon {
+  font-size: 0.85em;
+}
+
+/* ─── PROGRESS BAR ───────────────────────────────────────────── */
+.progress-track {
+  position: relative;
+  height: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: var(--sp-3);
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--blue);
+  border-radius: 3px;
+  transition: width 600ms ease; /* smooth as progress updates */
+}
+
+/*
+ * Shimmer animation on the fill bar while RUNNING.
+ * Communicates "something is happening" even between polling intervals.
+ */
+.fill-animated {
+  background: linear-gradient(
+    90deg,
+    var(--blue) 0%,
+    #58a6ff 50%,
+    var(--blue) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.8s linear infinite;
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.progress-label {
+  position: absolute;
+  right: 4px;
+  top: -14px;
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+/* ─── JOB DETAIL TEXT ────────────────────────────────────────── */
+.job-detail {
+  font-size: 0.8rem;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  margin-bottom: var(--sp-3);
+}
+
+.detail-success {
+  background: rgba(46, 160, 67, 0.08);
+  color: #3fb950;
+  border-left: 2px solid var(--teal);
+}
+
+.detail-error {
+  background: rgba(218, 54, 51, 0.08);
+  color: #f85149;
+  border-left: 2px solid var(--red);
+}
+
+.detail-warn {
+  background: rgba(210, 153, 34, 0.08);
+  color: var(--amber);
+  border-left: 2px solid var(--amber);
+}
+
+/* ─── JOB CARD FOOTER ────────────────────────────────────────── */
+.job-card-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-top: var(--sp-2);
+}
+
+.btn-cancel {
+  font-size: 0.78rem;
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px solid var(--red);
+  color: var(--red);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--tx);
+}
+
+.btn-cancel:hover {
+  background: rgba(218, 54, 51, 0.12);
+}
+
+.cancel-feedback {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cancel-ok  { color: var(--teal); }
+.cancel-err { color: #f85149; }
+
+.timestamp {
+  margin-left: auto;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+}
+
+/* ─── LOADING INDICATOR ──────────────────────────────────────── */
+.job-loading {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+}
+
+/* ─── SPINNER ────────────────────────────────────────────────── */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border-hi);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── SCROLLBAR (nice touch for Webkit browsers) ─────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb {
+  background: var(--border-hi);
+  border-radius: 3px;
+}
