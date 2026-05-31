@@ -102,7 +102,7 @@ nginx (port 80)  ──proxy /api/──►  JobController (Spring Boot :8080)
 ### Quick Start
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/Avishkar-02/Job-Processor.git
 cd Job_Scheduler_MultiThreading_Project
 docker compose up --build
 ```

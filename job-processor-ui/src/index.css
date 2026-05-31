@@ -1,13 +1,4 @@
-/**
- * index.css — Global styles for the Job Processor dashboard.
- *
- * Design direction: "Industrial terminal" — dark background, monospace accents,
- * teal/green for success states, amber for warnings, red for errors.
- * Feels like a real ops dashboard, not a generic CRUD app.
- *
- * CSS custom properties (variables) are defined on :root so every component
- * inherits them. Change a color once here → updates everywhere.
- */
+
 
 /* ─── RESET + BASE ──────────────────────────────────────────── */
 *, *::before, *::after {

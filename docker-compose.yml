@@ -1,4 +1,4 @@
-# docker-compose.yml — Orchestrates the full Async Job Processing System.
+ # docker-compose.yml — Orchestrates the full Async Job Processing System.
 #
 # SERVICES (in startup order):
 #   1. mysql      — persistent storage (source of truth)

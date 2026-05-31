@@ -11,15 +11,6 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 
 /**
- * JobKafkaConsumer — picks up job IDs from the "job-requests" topic
- * and executes the job (simulated 25-second workload with progress updates).
- *
- * CONCURRENCY:
- * concurrency="3" means Spring Kafka creates 3 consumer threads, each with
- * its own Kafka consumer instance within the same consumer group.
- * With 3 threads, up to 3 jobs run in parallel (one per thread).
- * The topic needs at least 3 partitions for this to be effective
- * (Kafka assigns one partition per consumer thread within a group).
  *
  * ────────────────────────────────────────────────────────────────
  * BUG FIXES IN THIS FILE
@@ -70,12 +61,7 @@ public class JobKafkaConsumer {
         this.jobService    = jobService;
     }
 
-    /**
-     * @KafkaListener binds this method to the "job-requests" topic.
-     * groupId matches the consumer group — all 3 concurrent threads share
-     * the same group so each message is delivered to EXACTLY ONE thread.
-     * (Different groups would each get a copy — pub/sub style.)
-     */
+
     @KafkaListener(
             topics      = "job-requests",
             groupId     = "job-processor-group",
@@ -122,13 +108,10 @@ public class JobKafkaConsumer {
 
             boolean cancelled = false;
 
-            // Simulate 5-step job: each step takes 5 s, updates progress
             for (int i = 1; i <= 5; i++) {
                 Thread.sleep(5000);  // Simulated work
 
-                // Check cancel flag AFTER each sleep — this is the soonest
-                // we can react to a cancel. Maximum cancel latency = 5 s.
-                // ConcurrentHashMap read is thread-safe without a lock.
+
                 if (jobService.isCanceled(jobId)) {
                     log.warn("Job {} cancelled at step {}/5", jobId, i);
                     cancelled = true;

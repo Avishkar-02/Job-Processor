@@ -25,13 +25,6 @@ public class JobService {
 
     private static final Logger log = LoggerFactory.getLogger(JobService.class);
 
-    /*
-     * cancelFlag lives in memory (not Redis/DB) because:
-     * 1. It only needs to survive for the duration of a single job run (~25s)
-     * 2. The consumer that checks it runs in the SAME JVM process
-     * 3. ConcurrentHashMap gives thread-safe reads/writes without locks
-     * If you ever scale to multiple backend instances, move this to Redis.
-     */
     private final ConcurrentHashMap<Long, Boolean> cancelFlag = new ConcurrentHashMap<>();
 
     private final JobRepository jobRepository;
@@ -98,17 +91,7 @@ public class JobService {
         jobKafkaProducer.publishJob(event.getJobId());
     }
 
-    /*
-     * getJob: Redis-first, MySQL fallback.
-     * Redis stores {status, progress} for RUNNING jobs only (hot state).
-     * Once a job completes/fails/cancels, the consumer deletes the Redis key.
-     * After that, all reads go to MySQL (source of truth).
-     *
-     * How to detect Redis hit vs DB hit in the frontend:
-     * RedisJobResponse has NO createdAt field.
-     * GetJobResponse (from MySQL) HAS createdAt.
-     * The frontend uses this absence to show "Redis ⚡" vs "MySQL 💾".
-     */
+
     public Object getJob(Long id) {
         log.debug("Fetching job state for id={}", id);
 

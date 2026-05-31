@@ -1,11 +1,4 @@
-/**
- * App.jsx — Root component
- *
- * Why a single-page app?
- * The backend exposes three endpoints: POST /jobs, GET /jobs/{id}, DELETE /jobs/{id}.
- * All three are covered in one dashboard view, so we don't need routing.
- * State flows DOWN via props; actions flow UP via callbacks.
- */
+
 
 import { useState } from "react";
 import JobSubmitter from "./components/JobSubmitter";

@@ -3,25 +3,16 @@ package com.savi.jobprocessor.ratelimit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
+import static java.util.Collections.singletonList;
+
 /**
- * RateLimiterService — enforces a per-IP rate limit on POST /jobs.
- *
- * ALGORITHM: Fixed window counter
- * - Redis key: "rate:job:create:{ip}"
- * - Value: request count (integer as string)
- * - TTL: 1 minute (the window)
- * - Limit: 5 requests per window per IP
- *
- * Each POST /jobs:
- * 1. INCR the key (atomic increment, creates key at 0 before incrementing)
- * 2. If count == 1 (first request), set TTL of 1 minute
- * 3. If count > MAX_REQUEST, throw RateLimitExceededException (→ 429)
- *
+
  * ────────────────────────────────────────────────────────────────
  * BUG FIX: Race condition between INCR and EXPIRE
  * ────────────────────────────────────────────────────────────────
@@ -52,13 +43,7 @@ import java.util.concurrent.TimeUnit;
  *       redis.call('EXPIRE', KEYS[1], ARGV[1])
  *   end
  *   return count
- *
- * Alternative fix (simpler but slightly different semantics):
- * Use SET key 0 EX 60 NX (set only if Not eXists, with expiry).
- * Then INCR. The NX ensures the TTL is only set on first creation.
- * We use the Lua approach here because it's a better learning example
- * and directly parallels what production rate limiters do.
- */
+*/
 @Service
 public class RateLimiterService {
 
@@ -68,12 +53,7 @@ public class RateLimiterService {
     private static final Duration WINDOW  = Duration.ofMinutes(1);
 
     /**
-     * Lua script for atomic INCR + conditional EXPIRE.
-     * KEYS[1] = the rate limit key
-     * ARGV[1] = TTL in seconds
-     *
-     * Why Lua on Redis?
-     * Redis is single-threaded for command execution.
+     *Redis is single-threaded for command execution.
      * A Lua script runs as one atomic unit — no commands from other clients
      * can execute between lines of the script.
      * This is the Redis-native way to implement multi-step atomic operations.
@@ -91,21 +71,15 @@ public class RateLimiterService {
         this.redisTemplate = redisTemplate;
     }
 
-    /**
-     * Validates a job creation request against the rate limit.
-     * Throws RateLimitExceededException (→ HTTP 429) if limit is exceeded.
-     *
-     * @param clientIp The IP address of the requesting client.
-     */
+
     public void validateCreateJobRequest(String clientIp) {
         String key = "rate:job:create:" + clientIp;
 
         // Execute the Lua script atomically.
         // execute() returns Object; the Lua script returns a long (Redis integer reply).
         Long count = redisTemplate.execute(
-                new org.springframework.data.redis.core.script.DefaultRedisScript<>(
-                        RATE_LIMIT_SCRIPT, Long.class),
-                java.util.Collections.singletonList(key),
+                new DefaultRedisScript<>(RATE_LIMIT_SCRIPT, Long.class),
+                singletonList(key),
                 String.valueOf(WINDOW.getSeconds())  // ARGV[1] = TTL in seconds
         );
 

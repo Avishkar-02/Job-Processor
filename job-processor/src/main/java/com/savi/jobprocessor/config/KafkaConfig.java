@@ -28,8 +28,7 @@ public class KafkaConfig {
 
     @Bean
     public NewTopic jobRequestsTopic() {
-        // 3 partitions = 3 consumers can work in parallel
-        // replicationFactor=1 is fine for local/single broker
+        //the new topic is created only when there are none, if present kafka use the same topics
         return TopicBuilder.name("job-requests")
                 .partitions(3)
                 .replicas(1)
@@ -42,7 +41,6 @@ public class KafkaConfig {
     public ProducerFactory<String, Long> producerFactory() {
         Map<String, Object> config = new HashMap<>();
 
-        // Use injected value — not hardcoded "localhost:9092"
         config.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         config.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,   StringSerializer.class);
         config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,  LongSerializer.class);
@@ -61,7 +59,6 @@ public class KafkaConfig {
 
         config.put(ProducerConfig.PARTITIONER_CLASS_CONFIG,
                 org.apache.kafka.clients.producer.RoundRobinPartitioner.class);
-// Also set linger.ms=0 so sticky batching doesn't accumulate
         config.put(ProducerConfig.LINGER_MS_CONFIG, 0);
 
         return new DefaultKafkaProducerFactory<>(config);
@@ -89,12 +86,7 @@ public class KafkaConfig {
         return new DefaultKafkaConsumerFactory<>(config);
     }
 
-    /**
-     * This bean name ("kafkaListenerContainerFactory") is the DEFAULT name
-     * Spring Kafka looks for when processing @KafkaListener annotations.
-     * The concurrency is set on the listener itself (concurrency="3"),
-     * but the factory must allow it — ConcurrentKafkaListenerContainerFactory does.
-     */
+
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, Long> kafkaListenerContainerFactory() {
         ConcurrentKafkaListenerContainerFactory<String, Long> factory =

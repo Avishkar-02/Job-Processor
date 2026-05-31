@@ -9,43 +9,7 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.Optional;
 
-/**
- * RedisJobStateService — manages the hot-state cache for in-progress jobs.
- *
- * HOW CACHING WORKS IN THIS SYSTEM:
- * 1. Job is created → saved to MySQL (source of truth)
- * 2. Kafka consumer picks it up → saves {status, progress} to Redis hash
- * 3. GET /jobs/{id} reads Redis FIRST (fast). Redis miss → reads MySQL.
- * 4. Job finishes → consumer deletes the Redis key. Next read → MySQL.
- *
- * Redis key structure: "job:{id}" → Hash { "status": "RUNNING", "progress": "40" }
- * Using a Hash (not separate String keys) means both fields are stored
- * under one key: simpler TTL management and atomic updates.
- *
- * ────────────────────────────────────────────────────────────────
- * BUG FIX: saveProgress() did NOT reset the TTL.
- * ────────────────────────────────────────────────────────────────
- *
- * The original code:
- *   saveStatus()   → puts "status" field + calls template.expire(key, TTL) ✓
- *   saveProgress() → puts "progress" field only, NO expire() call          ✗
- *
- * The problem:
- * Redis TTL is set on the whole key (not per-field in a Hash).
- * TTL is only reset when saveStatus() is called — which happens ONCE
- * at the start (RUNNING) and never again during the processing loop.
- *
- * The processing loop calls saveProgress() every 5 s for 25 s.
- * TTL = 2 minutes. Sounds fine... until a job is delayed (e.g. GC pause,
- * slow DB) and the loop takes longer than expected. Or if TTL is reduced
- * to 30 s in testing. The Redis key expires, GET /jobs/{id} hits MySQL
- * (which only has stale progress), and the "Redis ⚡" indicator in the
- * frontend disappears mid-job.
- *
- * The fix: call template.expire() in saveProgress() too.
- * Every progress update resets the TTL clock. The key only expires
- * JOB_TTL after the LAST activity — not after creation.
- */
+
 @Service
 public class RedisJobStateService {
 
@@ -53,13 +17,6 @@ public class RedisJobStateService {
 
     private final StringRedisTemplate template;
 
-    /**
-     * TTL = 2 minutes from the last activity.
-     * Chosen to be safely longer than the max job duration (25 s) plus
-     * some buffer for delays. After a job completes, the consumer calls
-     * deleteJobStore() immediately, so the TTL is mainly a safety net
-     * in case deleteJobStore() is missed (e.g. consumer crash).
-     */
     private static final Duration JOB_TTL = Duration.ofMinutes(2);
 
     public RedisJobStateService(StringRedisTemplate template) {
@@ -96,8 +53,6 @@ public class RedisJobStateService {
     public void saveProgress(Long jobId, long progress) {
         String key = jobKey(jobId);
         template.opsForHash().put(key, "progress", String.valueOf(progress));
-        // Reset TTL on every progress update — keeps the key alive as long as
-        // the job is actively progressing. Expires 2 min after the LAST update.
         template.expire(key, JOB_TTL);
     }
 
@@ -119,10 +74,7 @@ public class RedisJobStateService {
         return Optional.of(JobStatus.valueOf(value.toString()));
     }
 
-    /**
-     * Reads the job progress from Redis.
-     * Returns Optional.empty() on cache miss.
-     */
+
     public Optional<Long> getProgress(Long jobId) {
         String key = jobKey(jobId);
         Object value = template.opsForHash().get(key, "progress");
